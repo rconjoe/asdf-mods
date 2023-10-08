@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-# TODO: Ensure this is the correct GitHub homepage where releases can be downloaded for mods.
 GH_REPO="https://github.com/charmbracelet/mods"
 TOOL_NAME="mods"
 TOOL_TEST="mods --version"
@@ -31,44 +30,68 @@ list_github_tags() {
 }
 
 list_all_versions() {
-	# TODO: Adapt this. By default we simply list the tag names from GitHub releases.
 	# Change this function if mods has other means of determining installable versions.
 	list_github_tags
 }
 
 download_release() {
-	local version filename url
-	version="$1"
-	filename="$2"
+  local version="$1"
+  local filename="$2"
 
-	# TODO: Adapt the release URL convention for mods
-	url="$GH_REPO/archive/v${version}.tar.gz"
 
-	echo "* Downloading $TOOL_NAME release $version..."
-	curl "${curl_opts[@]}" -o "$filename" -C - "$url" || fail "Could not download $url"
+	local platform
+  case "$(uname -s)" in
+    Linux*) platform=Linux ;;
+    Darwin*) platform=Darwin ;;
+  esac
+
+  echo $platform;
+
+	local arch
+  case "$(uname -m)" in
+    aarch64) arch=aarch64 ;;
+    x86_64) arch=x86_64 ;;
+    arm64) arch=arm64 ;;
+  esac
+
+  echo $arch;
+
+  echo >&2 "* Downloading mods release $version for $platform with architecture $arch..."
+
+  url="$GH_REPO/releases/download/v$version/mods_${version}_${platform}_${arch}.tar.gz"
+  curl "${curl_opts[@]}" -o "$filename.tar.gz" -C - "$url" >&/dev/null && echo ".tar.gz" && return
+
+  fail "Could not download $url"
 }
 
 install_version() {
-	local install_type="$1"
-	local version="$2"
-	local install_path="${3%/bin}/bin"
+  local install_type="$1"
+  local version="$2"
+  local install_path="$3"
 
-	if [ "$install_type" != "version" ]; then
-		fail "asdf-$TOOL_NAME supports release installs only"
-	fi
+  if [ "$install_type" != "version" ]; then
+    fail "asdf-mods supports release installs only"
+  fi
 
-	(
-		mkdir -p "$install_path"
-		cp -r "$ASDF_DOWNLOAD_PATH"/* "$install_path"
+  local release_file="$install_path/mods-$version"
+  (
+    mkdir -p "$install_path/bin"
+    local ext=$(download_release "$version" "$release_file")
 
-		# TODO: Assert mods executable exists.
-		local tool_cmd
-		tool_cmd="$(echo "$TOOL_TEST" | cut -d' ' -f1)"
-		test -x "$install_path/$tool_cmd" || fail "Expected $install_path/$tool_cmd to be executable."
+    case "$ext" in
+      tar.gz) tar -xzf "$release_file.$ext" --directory "$install_path/bin" || fail "Could not extract $release_file.$ext" ;;
+      zip) unzip "$release_file.$ext" -d "$install_path/bin" || fail "Could not extract $release_file.$ext" ;;
+    esac
 
-		echo "$TOOL_NAME $version installation was successful!"
-	) || (
-		rm -rf "$install_path"
-		fail "An error occurred while installing $TOOL_NAME $version."
-	)
+    rm "$release_file.$ext"
+
+    local tool_cmd
+    tool_cmd="mods"
+    test -x "$install_path/bin/$tool_cmd" || fail "Expected $install_path/bin/$tool_cmd to be executable."
+
+    echo "mods $version installation was successful!"
+  ) || (
+    rm -rf "$install_path"
+    fail "An error ocurred while installing mods $version."
+  )
 }
